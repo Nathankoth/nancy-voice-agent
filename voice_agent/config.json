@@ -1,0 +1,107 @@
+{
+    "type": "Settings",
+    "audio": {
+        "input": {
+            "encoding": "linear16",
+            "sample_rate": 16000
+        },
+        "output": {
+            "encoding": "linear16",
+            "sample_rate": 24000,
+            "container": "none"
+        }
+    },
+    "agent": {
+        "listen": {
+            "provider": {
+                "type": "deepgram",
+                "model": "nova-3",
+                "keyterms": [
+                    "hello",
+                    "goodbye",
+                    "reservation",
+                    "table",
+                    "Nancy",
+                    "XYZ Restaurant",
+                    "menu",
+                    "booking",
+                    "cancel",
+                    "reschedule"
+                ]
+            }
+        },
+        "think": {
+            "provider": {
+                "type": "open_ai",
+                "model": "gpt-4o-mini",
+                "temperature": 0.7
+            },
+            "prompt": "You are Nancy, the professional receptionist and reservation specialist for XYZ Restaurant. You assist customers by handling reservations, answering questions about the restaurant, explaining menu offerings, providing information about services, and ensuring every customer receives a warm, welcoming, and efficient experience. You represent the restaurant's brand, values, and hospitality standards at all times.\n\nPERSONALITY: Warm and welcoming, professional and courteous, patient, confident and knowledgeable, friendly without being overly casual, efficient and organized, solution-oriented, and attentive to customer needs. Speak naturally like an experienced restaurant hostess — never robotic. Maintain a positive, helpful tone even in difficult situations.\n\nRESTAURANT KNOWLEDGE: You know XYZ Restaurant's history, concept, operating hours, holiday schedules, special events, contact info, location, directions, parking, and accessibility. You understand starters, main courses, desserts, and beverages — including ingredients, portion size, preparation style, spice level, popularity, and dietary options (vegetarian, vegan, gluten-free, allergies). You know all services: table reservations, walk-in dining, private dining, group bookings, celebrations, corporate events, catering, takeaway, delivery, and special requests.\n\nRESERVATIONS: When taking a reservation, collect: full name, phone number, date (YYYY-MM-DD), time (HH:MM 24-hour), number of guests, and special requests. Once you have all required details, call check_availability first, then create_reservation to book the table. Never confirm a booking without calling create_reservation. Before ending a reservation call, confirm date, time, guests, name, and special requests.\n\nCUSTOMER SERVICE: Listen carefully, provide accurate information, ask clarifying questions, recommend suitable menu items, and offer helpful suggestions. Never invent information — if unsure, say: \"I'd be happy to help with that. Let me connect you with a restaurant manager who can provide the most accurate information.\"\n\nCOMMUNICATION STYLE: Use clear, concise, natural language. Keep responses short since this is a voice conversation — one to three sentences unless more detail is requested. Avoid slang, robotic phrasing, long explanations, and guessing.\n\nCORE OBJECTIVE: Provide exceptional hospitality from the first interaction so customers feel welcomed, informed, valued, and excited about dining at XYZ Restaurant.",
+            "functions": [
+                {
+                    "name": "check_availability",
+                    "description": "Check if a table is available for a given date and time before booking.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "date": {
+                                "type": "string",
+                                "description": "Reservation date in YYYY-MM-DD format"
+                            },
+                            "time": {
+                                "type": "string",
+                                "description": "Reservation time in HH:MM 24-hour format"
+                            },
+                            "guests": {
+                                "type": "integer",
+                                "description": "Number of guests"
+                            }
+                        },
+                        "required": ["date", "time"]
+                    }
+                },
+                {
+                    "name": "create_reservation",
+                    "description": "Book a table reservation after collecting guest name, phone, date, time, and party size.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "guest_name": {
+                                "type": "string",
+                                "description": "Customer full name"
+                            },
+                            "phone": {
+                                "type": "string",
+                                "description": "Customer phone number"
+                            },
+                            "date": {
+                                "type": "string",
+                                "description": "Reservation date in YYYY-MM-DD format"
+                            },
+                            "time": {
+                                "type": "string",
+                                "description": "Reservation time in HH:MM 24-hour format"
+                            },
+                            "guests": {
+                                "type": "integer",
+                                "description": "Number of guests"
+                            },
+                            "special_requests": {
+                                "type": "string",
+                                "description": "Any special requests or celebration details"
+                            }
+                        },
+                        "required": ["guest_name", "phone", "date", "time", "guests"]
+                    }
+                }
+            ]
+        },
+        "speak": {
+            "provider": {
+                "type": "deepgram",
+                "model": "aura-2-thalia-en"
+            }
+        },
+        "greeting": "Good day and thank you for calling XYZ Restaurant. My name is Nancy. How may I assist you today? Whether you'd like to make a reservation, learn about our menu, or inquire about our services, I'm happy to help."
+    }
+}

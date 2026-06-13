@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XYZ Restaurant — Voice Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Voice Agent</h1>
+        <p class="subtitle">Nancy · XYZ Restaurant receptionist</p>
+      </div>
+      <div class="status" id="status">
+        <span class="dot"></span>
+        <span id="status-text">Disconnected</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel controls">
+        <button id="connect-btn" class="btn primary">Connect &amp; Talk</button>
+        <button id="disconnect-btn" class="btn" disabled>Disconnect</button>
+        <p class="hint">Allow microphone access when prompted. Speak naturally after connecting.</p>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <h2>Conversation</h2>
+          <div id="transcript" class="transcript"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Event Log <span class="badge">STT · LLM · TTS</span></h2>
+          <div id="event-log" class="event-log"></div>
+        </div>
+      </section>
+
+      <section class="panel config-panel">
+        <div class="config-header">
+          <h2>Agent Configuration</h2>
+          <div class="config-actions">
+            <button id="load-config-btn" class="btn small">Reload</button>
+            <button id="save-config-btn" class="btn small primary">Save Config</button>
+          </div>
+        </div>
+        <p class="hint">Edit <code>config.json</code> settings below. Reconnect for changes to take effect.</p>
+        <textarea id="config-editor" spellcheck="false"></textarea>
+        <p id="config-message" class="config-message"></p>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

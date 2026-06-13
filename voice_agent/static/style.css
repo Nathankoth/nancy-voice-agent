@@ -1,0 +1,205 @@
+:root {
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2f3d;
+  --text: #e8eaf0;
+  --muted: #8b93a7;
+  --accent: #7c6cff;
+  --accent-hover: #9488ff;
+  --stt: #3ecf8e;
+  --llm: #5b9fff;
+  --tts: #f5a623;
+  --system: #8b93a7;
+  --danger: #ff5c5c;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+
+h1 { font-size: 1.75rem; font-weight: 600; }
+h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; }
+.subtitle { color: var(--muted); margin-top: 0.25rem; }
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+.status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.status.ready .dot { background: var(--stt); box-shadow: 0 0 8px var(--stt); }
+.status.connecting .dot { background: var(--tts); animation: pulse 1s infinite; }
+.status.error .dot { background: var(--danger); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.controls { text-align: center; }
+
+.btn {
+  background: var(--border);
+  color: var(--text);
+  border: none;
+  padding: 0.65rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  margin: 0 0.25rem;
+  transition: background 0.15s;
+}
+
+.btn:hover:not(:disabled) { background: #3a4050; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.primary { background: var(--accent); }
+.btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn.small { padding: 0.4rem 0.85rem; font-size: 0.85rem; }
+
+.hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.75rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  margin-left: 0.5rem;
+}
+
+.transcript, .event-log {
+  min-height: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.entry {
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  border-left: 3px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.entry.stt { border-left-color: var(--stt); }
+.entry.llm { border-left-color: var(--llm); }
+.entry.tts { border-left-color: var(--tts); }
+.entry.system { border-left-color: var(--system); }
+
+.entry .label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+.entry.stt .label { color: var(--stt); }
+.entry.llm .label { color: var(--llm); }
+.entry.tts .label { color: var(--tts); }
+.entry.system .label { color: var(--system); }
+.entry.calendar { border-left-color: #c084fc; }
+.entry.calendar .label { color: #c084fc; }
+
+.entry .time {
+  font-size: 0.7rem;
+  color: var(--muted);
+  float: right;
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.config-actions { display: flex; gap: 0.5rem; }
+
+#config-editor {
+  width: 100%;
+  min-height: 280px;
+  margin-top: 0.75rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+.config-message {
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  min-height: 1.25rem;
+}
+
+.config-message.ok { color: var(--stt); }
+.config-message.err { color: var(--danger); }
+
+code {
+  background: var(--bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.85em;
+}
