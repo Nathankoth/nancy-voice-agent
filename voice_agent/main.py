@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from timezone_utils import format_context_datetime, now_iso, restaurant_timezone
 from pathlib import Path
 
 import websockets
@@ -51,6 +51,21 @@ def load_config() -> dict:
         return json.load(f)
 
 
+def load_config_for_session() -> dict:
+    config = load_config()
+    agent = config.get("agent", {})
+    think = agent.get("think", {})
+    prompt = think.get("prompt", "")
+    tz = restaurant_timezone()
+    context = (
+        f"\n\nCURRENT DATE AND TIME: {format_context_datetime()} "
+        f"({tz}, West Africa Time, UTC+1). "
+        "All reservation dates and times must be interpreted and confirmed in this timezone."
+    )
+    think = {**think, "prompt": prompt + context}
+    return {**config, "agent": {**agent, "think": think}}
+
+
 def save_config(config: dict) -> None:
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=4)
@@ -79,7 +94,7 @@ def log_event(
         "type": "log",
         "category": category,
         "message": message,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": now_iso(),
     }
     if extra:
         entry["extra"] = extra
@@ -265,7 +280,7 @@ async def browser_handler(request: web.Request) -> web.WebSocketResponse:
                 log_event("system", f"Deepgram connected ({welcome.get('request_id', 'n/a')})"),
             )
 
-            settings = load_config()
+            settings = load_config_for_session()
             await dg_ws.send(json.dumps(settings))
             await wait_for_message(dg_ws, "SettingsApplied")
             await send_json(browser_ws, {"type": "ready", "config": settings})
@@ -377,8 +392,21 @@ async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC_DIR / "index.html")
 
 
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    if request.method == "OPTIONS":
+        response = web.Response(status=204)
+    else:
+        response = await handler(request)
+
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, PUT, POST, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return response
+
+
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[cors_middleware])
     app.router.add_get("/", index)
     app.router.add_get("/api/config", get_config)
     app.router.add_put("/api/config", put_config)

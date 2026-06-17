@@ -100,7 +100,7 @@ async def insert_reservation(record: dict) -> dict:
         "special_requests": record.get("special_requests", ""),
         "start_at": record.get("start_at"),
         "end_at": record.get("end_at"),
-        "timezone": record.get("timezone", "UTC"),
+        "timezone": record.get("timezone", "Africa/Lagos"),
         "status": record.get("status", "confirmed"),
         "calendar_event_id": record.get("calendar_event_id"),
         "calendar_synced": record.get("calendar_synced", False),
