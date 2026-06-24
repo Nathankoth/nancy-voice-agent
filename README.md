@@ -9,6 +9,11 @@ voice_agent/   Python WebSocket server + Deepgram bridge (port 8765)
 nancy/         Next.js voice UI + admin dashboard (port 3000)
 ```
 
+## Deploy
+
+- **Railway (backend):** see `voice_agent/DEPLOY.md` — set Root Directory to `voice_agent`, or use the root `Dockerfile`.
+- **Vercel (frontend):** deploy `nancy/` with Root Directory `nancy`.
+
 ## Quick start
 
 ### 1. Python backend

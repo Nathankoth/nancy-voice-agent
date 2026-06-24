@@ -1,0 +1,12 @@
+nancy/
+nancy-demo/
+nancy-app/
+.git/
+.venv/
+**/__pycache__/
+**/.next/
+**/node_modules/
+**/.env
+**/.env.*
+!**/.env.example
+voice_agent/logs/
