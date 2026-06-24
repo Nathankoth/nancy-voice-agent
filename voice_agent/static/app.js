@@ -183,6 +183,12 @@ async function connect() {
       return;
     }
 
+    if (data.type === "session_end") {
+      logEvent("system", data.message || "Call ended.", new Date().toISOString());
+      disconnect();
+      return;
+    }
+
     if (data.type === "log") {
       logEvent(data.category, data.message, data.timestamp);
       return;

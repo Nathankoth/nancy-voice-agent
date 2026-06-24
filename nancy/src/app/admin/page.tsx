@@ -1,675 +1,337 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
+import NancyShell from "@/components/nancy/NancyShell";
+import AdminModal from "@/components/admin/AdminModal";
+import AdminCallDetails from "@/components/admin/AdminCallDetails";
 import {
-  RESTAURANT_TIMEZONE,
-  todayInRestaurantTz,
-  formatRestaurantDate,
-  formatRestaurantLongDate,
-  formatRestaurantTime,
-  formatRestaurantDateTime,
-  isTodayInRestaurantTz,
-} from "@/lib/timezone";
+  type ConversationLogRow,
+  type ConversationSession,
+  groupConversationSessions,
+} from "@/lib/conversations";
+import { buildAdminReceipts, formatReceiptTime, type CallReceipt } from "@/lib/receipts";
+import type { LogEntry } from "@/hooks/useNancyVoice";
 
-const API_URL = process.env.NEXT_PUBLIC_NANCY_API_URL || "http://localhost:8765";
+const API = "/api/nancy";
+const ACTIVE_STATUSES = new Set(["confirmed", "pending", undefined, ""]);
+type Filter = "All" | "Reservations" | "Inquiries";
 
 interface Reservation {
   id?: string;
   guest_name: string;
   phone?: string;
-  email?: string;
   date: string;
   time: string;
   party_size: number;
+  guests?: number;
+  special_requests?: string;
   created_at?: string;
   calendar_synced?: boolean;
   session_id?: string;
-  notes?: string;
-}
-
-interface ConversationLog {
-  id?: string;
-  session_id?: string;
-  category: string;
-  message: string;
-  timestamp: string;
-  extra?: Record<string, unknown>;
-}
-
-const TABLES = 4;
-const SEATS_PER_TABLE = 5;
-const TOTAL_SEATS = TABLES * SEATS_PER_TABLE;
-const AVG_DINING_MINUTES = 60;
-
-function timeToMinutes(time: string): number {
-  const [h, m] = time.replace(/[AP]M/i, "").split(":").map(Number);
-  const isPM = time.toLowerCase().includes("pm") && h !== 12;
-  const isAM = time.toLowerCase().includes("am") && h === 12;
-  return (isPM ? h + 12 : isAM ? 0 : h) * 60 + (m || 0);
-}
-
-function slotsOverlap(time1: string, time2: string): boolean {
-  const t1 = timeToMinutes(time1);
-  const t2 = timeToMinutes(time2);
-  return Math.abs(t1 - t2) < AVG_DINING_MINUTES;
-}
-
-function getCapacityStatus(reservations: Reservation[], date: string, time: string) {
-  const concurrent = reservations.filter((r) => r.date === date && slotsOverlap(r.time, time));
-  const seatsUsed = concurrent.reduce((sum, r) => sum + r.party_size, 0);
-  return {
-    seatsUsed,
-    seatsAvailable: Math.max(0, TOTAL_SEATS - seatsUsed),
-    isFull: seatsUsed >= TOTAL_SEATS,
-    percent: Math.round((seatsUsed / TOTAL_SEATS) * 100),
-  };
+  status?: string;
 }
 
 function normalizeReservation(r: Record<string, unknown>): Reservation {
-  const partySize = Number(r.party_size ?? r.guests ?? 0);
   return {
     id: r.id as string | undefined,
     guest_name: r.guest_name as string,
     phone: r.phone as string | undefined,
-    email: r.email as string | undefined,
     date: r.date as string,
     time: r.time as string,
-    party_size: partySize,
+    party_size: (r.party_size as number) ?? (r.guests as number) ?? 0,
+    guests: r.guests as number | undefined,
+    special_requests: r.special_requests as string | undefined,
     created_at: r.created_at as string | undefined,
     calendar_synced: r.calendar_synced as boolean | undefined,
     session_id: r.session_id as string | undefined,
-    notes: r.notes as string | undefined,
+    status: r.status as string | undefined,
   };
 }
 
+function Stat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
+  return (
+    <div className={`nancy-admin__stat ${accent ? "nancy-admin__stat--accent" : ""}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [conversationLogs, setConversationLogs] = useState<ConversationLog[]>([]);
+  const [receipts, setReceipts] = useState<CallReceipt[]>([]);
+  const [transcripts, setTranscripts] = useState<Record<string, LogEntry[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
-  const [selectedDate, setSelectedDate] = useState(todayInRestaurantTz());
+  const [filter, setFilter] = useState<Filter>("All");
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<CallReceipt | null>(null);
+  const [removing, setRemoving] = useState(false);
 
-  const fetchData = async () => {
+  const refresh = useCallback(async () => {
     try {
-      const [resRes, logsRes] = await Promise.all([
-        fetch(`${API_URL}/api/reservations`),
-        fetch(`${API_URL}/api/logs`),
+      const [resRes, logsRes, dismissedRes] = await Promise.all([
+        fetch(`${API}/reservations`),
+        fetch(`${API}/logs?limit=300`),
+        fetch(`${API}/dismissed-sessions`),
       ]);
-      if (!resRes.ok) throw new Error("Server not responding");
-      const data = await resRes.json();
-      const list = Array.isArray(data) ? data.map(normalizeReservation) : [];
-      setReservations(list);
+      if (!resRes.ok || !logsRes.ok) throw new Error("fetch failed");
 
-      if (logsRes.ok) {
-        const logs = await logsRes.json();
-        setConversationLogs(Array.isArray(logs) ? logs : []);
+      const resData = await resRes.json();
+      const logsData = await logsRes.json();
+      const dismissedData = dismissedRes.ok ? await dismissedRes.json() : { dismissed: [] };
+      const dismissed: string[] = Array.isArray(dismissedData.dismissed)
+        ? dismissedData.dismissed
+        : [];
+
+      const activeRes = (Array.isArray(resData) ? resData.map(normalizeReservation) : []).filter(
+        (r) => ACTIVE_STATUSES.has(r.status || "")
+      );
+      const sessions: ConversationSession[] = groupConversationSessions(
+        Array.isArray(logsData) ? (logsData as ConversationLogRow[]) : []
+      );
+
+      const transcriptMap: Record<string, LogEntry[]> = {};
+      for (const session of sessions) {
+        transcriptMap[session.session_id] = session.logs;
       }
 
+      setTranscripts(transcriptMap);
+      setReceipts(buildAdminReceipts(activeRes, sessions, dismissed));
       setLastFetch(new Date());
       setError("");
     } catch {
-      setError("Cannot reach Nancy server. Make sure the Python server is running.");
+      setError("Cannot reach Nancy. Wait a moment and tap Refresh.");
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
-    const t = setInterval(fetchData, 30000);
-    return () => clearInterval(t);
   }, []);
 
-  const dateRes = reservations.filter((r) => r.date === selectedDate);
-  const totalGuestsToday = dateRes.reduce((s, r) => s + (r.party_size || 0), 0);
-  const tablesNeededToday = Math.ceil(totalGuestsToday / SEATS_PER_TABLE);
+  useEffect(() => {
+    void refresh();
+    const interval = setInterval(() => void refresh(), 15000);
+    return () => clearInterval(interval);
+  }, [refresh]);
 
-  const timeSlots: string[] = [];
-  for (let h = 11; h <= 22; h++) {
-    timeSlots.push(`${h}:00`);
-    if (h < 22) timeSlots.push(`${h}:30`);
-  }
-
-  const readableLogs = conversationLogs.filter((l) =>
-    ["stt", "llm"].includes(l.category)
+  const stats = useMemo(
+    () => ({
+      calls: receipts.length,
+      reservations: receipts.filter((r) => r.type === "booking").length,
+      inquiries: receipts.filter((r) => r.type === "inquiry").length,
+    }),
+    [receipts]
   );
 
+  const filtered = useMemo(() => {
+    if (filter === "Reservations") return receipts.filter((r) => r.type === "booking");
+    if (filter === "Inquiries") return receipts.filter((r) => r.type === "inquiry");
+    return receipts;
+  }, [receipts, filter]);
+
+  const toggleCard = (receipt: CallReceipt) => {
+    setOpenCardId((current) => (current === receipt.id ? null : receipt.id));
+  };
+
+  const handleRemove = async (status?: "served" | "cancelled") => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    setError("");
+    try {
+      if (removeTarget.type === "inquiry") {
+        const res = await fetch(`${API}/sessions/${removeTarget.session_id}/dismiss`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "dismiss failed");
+        }
+      } else {
+        const reservationId = removeTarget.reservation_id || removeTarget.id;
+        const res = await fetch(`${API}/reservations/${reservationId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: status || "served" }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.message || data.error || "update failed");
+        }
+      }
+      if (openCardId === removeTarget.id) setOpenCardId(null);
+      setRemoveTarget(null);
+      await refresh();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "unknown error";
+      setError(
+        removeTarget.type === "inquiry"
+          ? "Could not remove this call."
+          : `Could not remove reservation: ${msg}`
+      );
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const RESTAURANT = process.env.NEXT_PUBLIC_RESTAURANT_NAME || "XYZ Restaurant";
+
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#0a0a0a",
-        color: "#ffffff",
-        fontFamily: "system-ui, sans-serif",
-        padding: "32px 24px",
-      }}
-    >
-      <div style={{ maxWidth: "960px", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            marginBottom: "32px",
-          }}
-        >
+    <NancyShell active="admin">
+      <div className="nancy-admin nancy-admin--dash">
+        <header className="nancy-admin__header">
           <div>
-            <h1 style={{ fontSize: "22px", fontWeight: 700, marginBottom: "4px" }}>
-              Admin — Reservations
-            </h1>
-            <p style={{ fontSize: "13px", color: "#6b7280" }}>
-              {lastFetch
-                ? `Last updated ${formatRestaurantTime(lastFetch)} WAT`
-                : "Loading..."}
-              {" · "}
-              {RESTAURANT_TIMEZONE.replace("_", " ")}
+            <h1 className="nancy-admin__title">{RESTAURANT} Owner Dashboard</h1>
+            <p className="nancy-admin__subtitle">
+              Tap a card for call details. Every call Nancy handled is logged here.
+              {lastFetch && ` Updated ${lastFetch.toLocaleTimeString()}.`}
             </p>
           </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              style={{
-                background: "#111",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "8px",
-                color: "#ffffff",
-                fontSize: "13px",
-                padding: "8px 12px",
-                cursor: "pointer",
-              }}
-            />
-            <button
-              onClick={fetchData}
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: "8px",
-                color: "#9ca3af",
-                fontSize: "13px",
-                padding: "8px 14px",
-                cursor: "pointer",
-              }}
-            >
-              Refresh
-            </button>
-            <Link href="/" style={{ fontSize: "13px", color: "#22c55e", textDecoration: "none" }}>
-              ← Nancy
-            </Link>
-          </div>
+          <button type="button" className="nancy-btn-ghost" onClick={() => void refresh()}>
+            Refresh
+          </button>
+        </header>
+
+        {error && <div className="nancy-panel__error">{error}</div>}
+
+        <div className="nancy-admin__stats">
+          <Stat label="Calls handled" value={stats.calls} />
+          <Stat label="Reservations" value={stats.reservations} accent />
+          <Stat label="Inquiries" value={stats.inquiries} />
         </div>
 
-        {error && (
-          <div
-            style={{
-              background: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: "10px",
-              padding: "14px 18px",
-              fontSize: "13px",
-              color: "#f87171",
-              marginBottom: "24px",
-              lineHeight: 1.6,
-            }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(4, 1fr)",
-            gap: "12px",
-            marginBottom: "28px",
-          }}
-        >
-          {[
-            {
-              label: "Total seats",
-              value: TOTAL_SEATS,
-              color: "#ffffff",
-              sub: `${TABLES} tables × ${SEATS_PER_TABLE} seats`,
-            },
-            {
-              label: "Booked",
-              value: totalGuestsToday,
-              color: "#f59e0b",
-              sub: `${dateRes.length} reservation${dateRes.length !== 1 ? "s" : ""} on selected date`,
-            },
-            {
-              label: "Available seats",
-              value: Math.max(0, TOTAL_SEATS - totalGuestsToday),
-              color: "#22c55e",
-              sub: `For ${formatRestaurantDate(selectedDate)}`,
-            },
-            {
-              label: "Tables needed",
-              value: tablesNeededToday,
-              color: "#8b5cf6",
-              sub: `of ${TABLES} total`,
-            },
-          ].map((card) => (
-            <div
-              key={card.label}
-              style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.07)",
-                borderRadius: "12px",
-                padding: "18px",
-              }}
+        <div className="nancy-admin__tabs" role="tablist">
+          {(["All", "Reservations", "Inquiries"] as Filter[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="tab"
+              className={filter === f ? "on" : ""}
+              onClick={() => setFilter(f)}
             >
-              <p style={{ fontSize: "11px", color: "#6b7280", marginBottom: "8px" }}>
-                {card.label}
-              </p>
-              <p
-                style={{
-                  fontSize: "28px",
-                  fontWeight: 700,
-                  color: card.color,
-                  marginBottom: "4px",
-                }}
-              >
-                {card.value}
-              </p>
-              <p style={{ fontSize: "11px", color: "#4b5563" }}>{card.sub}</p>
-            </div>
+              {f}
+            </button>
           ))}
         </div>
 
-        <div
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: "14px",
-            padding: "24px",
-            marginBottom: "28px",
-          }}
-        >
-          <p style={{ fontSize: "13px", fontWeight: 600, marginBottom: "16px", color: "#ffffff" }}>
-            Availability — {formatRestaurantLongDate(selectedDate)}
-          </p>
+        {loading ? (
+          <p className="nancy-transcript__empty">Loading receipts…</p>
+        ) : filtered.length === 0 ? (
+          <div className="nancy-admin__empty">
+            No {filter.toLowerCase()} yet. Take a call on the{" "}
+            <Link href="/">Dashboard</Link> and it lands here.
+          </div>
+        ) : (
+          <div className="nancy-admin__records">
+            {filtered.map((receipt) => {
+              const isOpen = openCardId === receipt.id;
+              const transcript = transcripts[receipt.session_id] || [];
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(72px, 1fr))",
-              gap: "6px",
-            }}
-          >
-            {timeSlots.map((slot) => {
-              const cap = getCapacityStatus(reservations, selectedDate, slot);
               return (
-                <div
-                  key={slot}
-                  style={{
-                    padding: "8px 6px",
-                    borderRadius: "8px",
-                    textAlign: "center",
-                    background: cap.isFull
-                      ? "rgba(239,68,68,0.1)"
-                      : cap.seatsUsed > 0
-                        ? "rgba(245,158,11,0.1)"
-                        : "rgba(34,197,94,0.06)",
-                    border: `1px solid ${
-                      cap.isFull
-                        ? "rgba(239,68,68,0.2)"
-                        : cap.seatsUsed > 0
-                          ? "rgba(245,158,11,0.2)"
-                          : "rgba(34,197,94,0.12)"
-                    }`,
-                  }}
+                <article
+                  key={receipt.id}
+                  className={`nancy-admin__card ${isOpen ? "nancy-admin__card--open" : ""}`}
                 >
-                  <p style={{ fontSize: "11px", color: "#9ca3af", marginBottom: "3px" }}>{slot}</p>
-                  <p
-                    style={{
-                      fontSize: "10px",
-                      fontWeight: 600,
-                      color: cap.isFull ? "#ef4444" : cap.seatsUsed > 0 ? "#f59e0b" : "#22c55e",
-                    }}
+                  <div className="nancy-admin__card-top">
+                    <span className={`nancy-admin__badge nancy-admin__badge--${receipt.type}`}>
+                      {receipt.type === "booking" ? "Reservation" : "Inquiry"}
+                    </span>
+                    <span className="nancy-admin__card-time">
+                      {formatReceiptTime(receipt.created_at)}
+                    </span>
+                    <button
+                      type="button"
+                      className="nancy-admin__del"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRemoveTarget(receipt);
+                      }}
+                      aria-label="Remove record"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="nancy-admin__card-hit"
+                    onClick={() => toggleCard(receipt)}
+                    aria-expanded={isOpen}
                   >
-                    {cap.isFull ? "Full" : cap.seatsUsed > 0 ? `${cap.seatsAvailable} left` : "Open"}
-                  </p>
-                </div>
+                    <div className="nancy-admin__card-name">
+                      {receipt.card_title || receipt.guest_name}
+                    </div>
+                    <div className="nancy-admin__card-line">
+                      {receipt.card_subtitle ||
+                        (receipt.type === "booking" ? (
+                          <>
+                            Party of {receipt.party_size ?? "n/a"}
+                            {receipt.date && ` · ${receipt.date}`}
+                            {receipt.time && ` ${receipt.time}`}
+                          </>
+                        ) : (
+                          <>Voice inquiry · {transcript.length} message(s)</>
+                        ))}
+                    </div>
+                    {receipt.special_requests && (
+                      <p className="nancy-admin__card-notes">{receipt.special_requests}</p>
+                    )}
+                    {receipt.phone && (
+                      <p className="nancy-admin__card-phone">{receipt.phone}</p>
+                    )}
+
+                    <span className="nancy-admin__expand">
+                      {isOpen ? "Hide call details ↑" : "View call details →"}
+                    </span>
+                  </button>
+
+                  {isOpen && (
+                    <AdminCallDetails receipt={receipt} transcript={transcript} />
+                  )}
+                </article>
               );
             })}
           </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: "16px",
-              marginTop: "14px",
-              paddingTop: "14px",
-              borderTop: "1px solid rgba(255,255,255,0.05)",
-            }}
-          >
-            {[
-              { label: "Open", color: "#22c55e" },
-              { label: "Partially booked", color: "#f59e0b" },
-              { label: "Fully booked", color: "#ef4444" },
-            ].map((l) => (
-              <div key={l.label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span
-                  style={{
-                    width: "8px",
-                    height: "8px",
-                    borderRadius: "50%",
-                    background: l.color,
-                    display: "block",
-                  }}
-                />
-                <span style={{ fontSize: "11px", color: "#6b7280" }}>{l.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: "14px",
-            padding: "24px",
-            marginBottom: "28px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "20px",
-            }}
-          >
-            <p style={{ fontSize: "14px", fontWeight: 600 }}>
-              Reservations —{" "}
-              {dateRes.length > 0 ? `${dateRes.length} on selected date` : "All bookings"}
-            </p>
-            <span
-              style={{
-                fontSize: "11px",
-                color: "#6b7280",
-                background: "rgba(255,255,255,0.04)",
-                padding: "4px 10px",
-                borderRadius: "20px",
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}
-            >
-              {reservations.length} total
-            </span>
-          </div>
-
-          {loading ? (
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "24px 0" }}>
-              <div
-                style={{
-                  width: "18px",
-                  height: "18px",
-                  borderRadius: "50%",
-                  border: "2px solid rgba(34,197,94,0.2)",
-                  borderTopColor: "#22c55e",
-                  animation: "spin 0.8s linear infinite",
-                }}
-              />
-              <span style={{ fontSize: "13px", color: "#6b7280" }}>Loading reservations...</span>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-            </div>
-          ) : reservations.length === 0 ? (
-            <div style={{ padding: "32px 0", textAlign: "center" }}>
-              <p style={{ fontSize: "13px", color: "#6b7280" }}>
-                No reservations yet. Nancy will log them here when customers book.
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              {[...reservations]
-                .sort((a, b) => {
-                  if (a.date !== b.date) return a.date > b.date ? 1 : -1;
-                  return timeToMinutes(a.time) - timeToMinutes(b.time);
-                })
-                .map((res, i) => {
-                  const tablesNeeded = Math.ceil(res.party_size / SEATS_PER_TABLE);
-                  const isSelected = res.date === selectedDate;
-                  const isToday = isTodayInRestaurantTz(res.date);
-
-                  return (
-                    <div
-                      key={res.id || i}
-                      style={{
-                        background: isSelected ? "rgba(34,197,94,0.04)" : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${isSelected ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)"}`,
-                        borderRadius: "12px",
-                        padding: "20px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          marginBottom: "16px",
-                          paddingBottom: "14px",
-                          borderBottom: "1px dashed rgba(255,255,255,0.08)",
-                        }}
-                      >
-                        <div>
-                          <p
-                            style={{
-                              fontSize: "16px",
-                              fontWeight: 700,
-                              color: "#ffffff",
-                              marginBottom: "3px",
-                            }}
-                          >
-                            {res.guest_name}
-                          </p>
-                          {res.phone && (
-                            <p style={{ fontSize: "12px", color: "#6b7280" }}>{res.phone}</p>
-                          )}
-                          {res.email && (
-                            <p style={{ fontSize: "12px", color: "#6b7280" }}>{res.email}</p>
-                          )}
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          {isToday && (
-                            <span
-                              style={{
-                                fontSize: "10px",
-                                fontWeight: 700,
-                                color: "#22c55e",
-                                background: "rgba(34,197,94,0.1)",
-                                padding: "3px 8px",
-                                borderRadius: "20px",
-                                display: "inline-block",
-                                marginBottom: "6px",
-                              }}
-                            >
-                              TODAY
-                            </span>
-                          )}
-                          <p
-                            style={{
-                              fontSize: "11px",
-                              color: res.calendar_synced ? "#22c55e" : "#6b7280",
-                            }}
-                          >
-                            {res.calendar_synced ? "✓ Calendar synced" : "Local only"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "1fr 1fr 1fr",
-                          gap: "16px",
-                          marginBottom: "14px",
-                        }}
-                      >
-                        <div>
-                          <p
-                            style={{
-                              fontSize: "10px",
-                              color: "#6b7280",
-                              marginBottom: "4px",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.05em",
-                            }}
-                          >
-                            Date
-                          </p>
-                          <p style={{ fontSize: "14px", fontWeight: 600, color: "#ffffff" }}>
-                            {formatRestaurantDate(res.date)}
-                          </p>
-                        </div>
-                        <div>
-                          <p
-                            style={{
-                              fontSize: "10px",
-                              color: "#6b7280",
-                              marginBottom: "4px",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.05em",
-                            }}
-                          >
-                            Time
-                          </p>
-                          <p style={{ fontSize: "14px", fontWeight: 600, color: "#ffffff" }}>
-                            {res.time}
-                          </p>
-                        </div>
-                        <div>
-                          <p
-                            style={{
-                              fontSize: "10px",
-                              color: "#6b7280",
-                              marginBottom: "4px",
-                              textTransform: "uppercase",
-                              letterSpacing: "0.05em",
-                            }}
-                          >
-                            Party
-                          </p>
-                          <p style={{ fontSize: "14px", fontWeight: 600, color: "#ffffff" }}>
-                            {res.party_size} guests
-                          </p>
-                        </div>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          paddingTop: "12px",
-                          borderTop: "1px dashed rgba(255,255,255,0.08)",
-                        }}
-                      >
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          {Array.from({ length: tablesNeeded }).map((_, t) => (
-                            <span
-                              key={t}
-                              style={{
-                                fontSize: "11px",
-                                color: "#8b5cf6",
-                                background: "rgba(139,92,246,0.1)",
-                                border: "1px solid rgba(139,92,246,0.2)",
-                                padding: "3px 10px",
-                                borderRadius: "20px",
-                                fontWeight: 600,
-                              }}
-                            >
-                              Table {t + 1}
-                              {tablesNeeded > 1 ? (t === 0 ? " (main)" : " (merged)") : ""}
-                            </span>
-                          ))}
-                        </div>
-                        {res.created_at && (
-                          <p style={{ fontSize: "11px", color: "#4b5563" }}>
-                            Booked {formatRestaurantDateTime(res.created_at)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            borderRadius: "14px",
-            padding: "24px",
-          }}
-        >
-          <p style={{ fontSize: "14px", fontWeight: 600, marginBottom: "20px" }}>
-            Conversation Log
-          </p>
-
-          {readableLogs.length === 0 ? (
-            <p style={{ fontSize: "13px", color: "#6b7280", padding: "16px 0" }}>
-              No conversations logged yet.
-            </p>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-              {[...readableLogs]
-                .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-                .slice(-50)
-                .map((log, i) => {
-                  const isUser = log.category === "stt";
-                  return (
-                    <div
-                      key={log.id || i}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        paddingBottom: "20px",
-                        borderBottom:
-                          i < readableLogs.length - 1
-                            ? "1px solid rgba(255,255,255,0.04)"
-                            : "none",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                        }}
-                      >
-                        <span
-                          style={{
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            color: isUser ? "#22c55e" : "#8b5cf6",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                          }}
-                        >
-                          {isUser ? "Guest" : "Nancy"}
-                        </span>
-                        <span style={{ fontSize: "11px", color: "#4b5563" }}>
-                          {formatRestaurantDateTime(log.timestamp)} WAT
-                        </span>
-                      </div>
-                      <p style={{ fontSize: "14px", color: "#e5e7eb", lineHeight: 1.7 }}>
-                        {log.message}
-                      </p>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
+        )}
       </div>
-    </main>
+
+      {removeTarget && (
+        <AdminModal title="Remove from list?" onClose={() => setRemoveTarget(null)}>
+          <p className="nancy-summary-detail__text">
+            Remove <strong>{removeTarget.guest_name}</strong> from the dashboard?
+          </p>
+          <div className="nancy-modal__actions">
+            {removeTarget.type === "booking" ? (
+              <>
+                <button
+                  type="button"
+                  className="nancy-btn-primary"
+                  disabled={removing}
+                  onClick={() => void handleRemove("served")}
+                >
+                  Guest served
+                </button>
+                <button
+                  type="button"
+                  className="nancy-btn-ghost"
+                  disabled={removing}
+                  onClick={() => void handleRemove("cancelled")}
+                >
+                  Cancelled
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="nancy-btn-primary"
+                disabled={removing}
+                onClick={() => void handleRemove()}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </AdminModal>
+      )}
+    </NancyShell>
   );
 }

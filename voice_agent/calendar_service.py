@@ -18,6 +18,7 @@ from supabase_service import (
     insert_reservation as supabase_insert_reservation,
     is_configured as supabase_configured,
     list_reservations_from_db,
+    update_reservation_in_db,
 )
 
 logger = logging.getLogger("voice_agent.calendar")
@@ -30,6 +31,10 @@ CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 DEFAULT_DURATION_HOURS = 2
+
+
+def _session() -> aiohttp.ClientSession:
+    return aiohttp.ClientSession(trust_env=False)
 
 
 def _calendar_id() -> str:
@@ -79,6 +84,36 @@ def _normalize_reservation(record: dict) -> dict:
     if "party_size" not in normalized and "guests" in normalized:
         normalized["party_size"] = normalized["guests"]
     return normalized
+
+
+async def update_reservation_status(reservation_id: str, status: str) -> dict:
+    """Mark reservation served or cancelled — removes from active admin table."""
+    if status not in {"served", "cancelled"}:
+        return {"success": False, "message": "Status must be served or cancelled"}
+
+    record: dict | None = None
+
+    if supabase_configured():
+        record = await update_reservation_in_db(reservation_id, status)
+
+    reservations = _load_reservations()
+    for r in reservations:
+        if r.get("id") == reservation_id:
+            r["status"] = status
+            r["updated_at"] = datetime.now(timezone.utc).isoformat()
+            record = record or r
+            _save_reservations(reservations)
+            break
+
+    if not record:
+        return {"success": False, "message": "Reservation not found"}
+
+    label = "served" if status == "served" else "cancelled"
+    return {
+        "success": True,
+        "message": f"Reservation marked as {label}",
+        "reservation": record,
+    }
 
 
 def _save_reservations(reservations: list[dict]) -> None:
@@ -140,7 +175,7 @@ def _calendar_url(path: str, access_via_oauth: bool) -> str:
 
 
 async def verify_calendar_connection() -> dict:
-    async with aiohttp.ClientSession() as session:
+    async with _session() as session:
         token = await _get_access_token(session)
         use_oauth = bool(token)
         headers = await _calendar_headers(session)
@@ -180,7 +215,7 @@ async def check_availability(date: str, time: str, guests: int = 2) -> dict:
                 conflicts.append(r)
 
     calendar_busy = False
-    async with aiohttp.ClientSession() as session:
+    async with _session() as session:
         token = await _get_access_token(session)
         if token:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -284,7 +319,7 @@ async def create_reservation(
         },
     }
 
-    async with aiohttp.ClientSession() as session:
+    async with _session() as session:
         token = await _get_access_token(session)
         if token:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -317,15 +352,16 @@ async def create_reservation(
 
     if record["status"] == "confirmed":
         msg = (
-            f"Reservation confirmed for {guest_name} on {date} at {time} "
-            f"for {guests} guests."
+            f"I've noted the reservation for {guest_name} on {date} at {time} "
+            f"for {guests} guests. A manager will contact you within ten to twenty "
+            f"minutes to confirm."
         )
         if record.get("calendar_synced"):
-            msg += " Added to Google Calendar."
+            msg += " Details saved to the restaurant calendar."
         elif record.get("supabase_synced"):
-            msg += " Saved to Supabase."
+            msg += " Details saved to the booking system."
         else:
-            msg += " Saved to restaurant booking log."
+            msg += " Details saved to the restaurant booking log."
     else:
         msg = record.get("decline_reason", "Could not complete reservation.")
 
@@ -351,4 +387,9 @@ async def handle_function_call(
             time=arguments["time"],
             guests=int(arguments.get("guests", 2)),
         )
+    if name == "end_call":
+        return {
+            "success": True,
+            "message": "Call will end after your closing line finishes playing.",
+        }
     return {"success": False, "message": f"Unknown function: {name}"}

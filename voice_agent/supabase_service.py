@@ -15,6 +15,10 @@ RESERVATIONS_TABLE = "reservations"
 LOGS_TABLE = "conversation_logs"
 
 
+def _session() -> aiohttp.ClientSession:
+    return aiohttp.ClientSession(trust_env=False)
+
+
 def _project_url_from_postgres() -> str | None:
     for key in ("SUPABASE_SESSION_POSTGRES_URL", "SUPABASE_TRANSACTION_POSTGRES_URL"):
         url = os.getenv(key, "")
@@ -63,7 +67,7 @@ async def verify_connection() -> dict:
             "hint": "Supabase Dashboard → Project Settings → API",
         }
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.get(
                 _rest_url(RESERVATIONS_TABLE),
                 headers=_headers(),
@@ -110,7 +114,7 @@ async def insert_reservation(record: dict) -> dict:
         "session_id": record.get("session_id"),
     }
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.post(
                 _rest_url(RESERVATIONS_TABLE), headers=_headers(), json=row
             ) as resp:
@@ -130,7 +134,7 @@ async def insert_reservation(record: dict) -> dict:
 
 async def list_reservations_from_db() -> list[dict]:
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.get(
                 _rest_url(RESERVATIONS_TABLE),
                 headers=_headers(),
@@ -144,9 +148,33 @@ async def list_reservations_from_db() -> list[dict]:
     return []
 
 
+async def update_reservation_in_db(reservation_id: str, status: str) -> dict | None:
+    """Update reservation status in Supabase. Returns updated row or None if not found."""
+    try:
+        async with _session() as session:
+            async with session.patch(
+                _rest_url(RESERVATIONS_TABLE),
+                headers=_headers(),
+                params={"id": f"eq.{reservation_id}"},
+                json={"status": status},
+            ) as resp:
+                if resp.status == 200:
+                    rows = await resp.json()
+                    return rows[0] if rows else None
+                if resp.status == 204:
+                    return {"id": reservation_id, "status": status}
+                body = await resp.text()
+                logger.warning(
+                    "Supabase reservation update failed (%s): %s", resp.status, body[:200]
+                )
+    except Exception as exc:
+        logger.exception("Supabase reservation update failed: %s", exc)
+    return None
+
+
 async def find_conflicts(date: str, time: str) -> list[dict]:
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.get(
                 _rest_url(RESERVATIONS_TABLE),
                 headers=_headers(),
@@ -179,7 +207,7 @@ async def insert_conversation_log(
         "metadata": metadata or {},
     }
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.post(
                 _rest_url(LOGS_TABLE), headers=_headers(), json=row
             ) as resp:
@@ -201,7 +229,7 @@ async def list_conversation_logs(session_id: str | None = None, limit: int = 100
     if session_id:
         params["session_id"] = f"eq.{session_id}"
     try:
-        async with aiohttp.ClientSession() as session:
+        async with _session() as session:
             async with session.get(
                 _rest_url(LOGS_TABLE), headers=_headers(), params=params
             ) as resp:

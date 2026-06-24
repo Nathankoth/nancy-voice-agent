@@ -1,47 +1,70 @@
-import VoiceWidget from "@/components/VoiceWidget";
+import Link from "next/link";
+import NancyShell from "@/components/nancy/NancyShell";
+import NancyWidget from "@/components/nancy/NancyWidget";
 
-export default function NancyPage() {
+const RESTAURANT = process.env.NEXT_PUBLIC_RESTAURANT_NAME || "XYZ Restaurant";
+const RESTAURANT_SUB = process.env.NEXT_PUBLIC_RESTAURANT_SUB || "Voice receptionist";
+
+export default function HomePage() {
   return (
-    <main
-      style={{
-        minHeight: "100vh",
-        background: "#0a0a0a",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px",
-        fontFamily: "system-ui, sans-serif",
-      }}
+    <NancyShell
+      active="dashboard"
+      footer={<p>Built for restaurants · Nancy captures calls in real time</p>}
     >
-      <div style={{ width: "100%", maxWidth: "420px" }}>
-        <div style={{ textAlign: "center", marginBottom: "48px" }}>
-          <div
-            style={{
-              width: "56px",
-              height: "56px",
-              background: "rgba(34,197,94,0.1)",
-              border: "1px solid rgba(34,197,94,0.15)",
-              borderRadius: "14px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              margin: "0 auto 14px",
-              fontSize: "24px",
-            }}
-          >
-            🍽️
+      <section className="nancy-hero">
+        <div className="nancy-hero__copy">
+          <div className="nancy-hero__orb" aria-hidden="true">
+            <span />
           </div>
-          <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#ffffff", marginBottom: "6px" }}>
-            Nancy
-          </h1>
-          <p style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.5 }}>
-            Hi! I&apos;m Nancy, your reservation assistant.
-            <br />
-            Press the button below and tell me when you&apos;d like to dine.
+          <p className="nancy-hero__eyebrow">
+            {RESTAURANT} · {RESTAURANT_SUB}
           </p>
+          <h1 className="nancy-hero__title">
+            The call gets answered.
+            <br />
+            <em>Every single time.</em>
+          </h1>
+          <p className="nancy-hero__lede">
+            Nancy takes reservations the moment the phone rings, then hands you a clean
+            receipt and schedules manager follow-up within ten to twenty minutes.
+          </p>
+          <div className="nancy-hero__features">
+            <span className="nancy-hero__pill">Voice booking</span>
+            <span className="nancy-hero__pill">Instant receipt</span>
+            <span className="nancy-hero__pill">Manager confirms shortly</span>
+          </div>
         </div>
-        <VoiceWidget />
-      </div>
-    </main>
+
+        <div className="nancy-hero__card-wrap">
+          <NancyWidget variant="full" restaurantName={RESTAURANT} />
+        </div>
+      </section>
+
+      <section className="nancy-features">
+        <div className="nancy-features__grid">
+          <article className="nancy-feature">
+            <div className="nancy-feature__icon">🎙️</div>
+            <h3>Talk naturally</h3>
+            <p>Name, party size, date, time, and special requests. Nancy captures it all.</p>
+          </article>
+          <article className="nancy-feature">
+            <div className="nancy-feature__icon">🧾</div>
+            <h3>Your receipt</h3>
+            <p>After your call, see exactly what was recorded and what happens next.</p>
+          </article>
+          <article className="nancy-feature">
+            <div className="nancy-feature__icon">📋</div>
+            <h3>Owner view</h3>
+            <p>
+              Staff see every call as a receipt on the{" "}
+              <Link href="/admin" className="nancy-inline-link">
+                admin page
+              </Link>
+              , with summaries on tap.
+            </p>
+          </article>
+        </div>
+      </section>
+    </NancyShell>
   );
 }
