@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/nancy/r/:id", "destination": "/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

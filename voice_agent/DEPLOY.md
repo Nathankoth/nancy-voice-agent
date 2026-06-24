@@ -1,18 +1,13 @@
 # Deploy voice_agent on Railway
 
-## Option A (recommended): Root Directory
-
-Railway must build from the **`voice_agent`** folder, not the repo root.
+## Railway settings (required)
 
 1. Create a service from this GitHub repo.
-2. Open **Settings → Source → Root Directory**.
-3. Set root directory to: `voice_agent`
+2. **Settings → Source → Root Directory** → set to: `voice_agent`
+3. **Settings → Build → Builder** → **Nixpacks** (not Dockerfile)
 4. Redeploy.
 
-## Option B: Monorepo root (Dockerfile)
-
-If Root Directory is left empty (repo root), the root **`Dockerfile`** builds `voice_agent/` automatically.
-Ensure **Settings → Build → Builder** uses Dockerfile (see root `railway.toml`).
+Nixpacks will detect Python from `requirements.txt` / `pyproject.toml` and run the app.
 
 ## Start command
 

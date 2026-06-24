@@ -11,7 +11,7 @@ nancy/         Next.js voice UI + admin dashboard (port 3000)
 
 ## Deploy
 
-- **Railway (backend):** see `voice_agent/DEPLOY.md` — set Root Directory to `voice_agent`, or use the root `Dockerfile`.
+- **Railway (backend):** see `voice_agent/DEPLOY.md` — Root Directory `voice_agent`, builder **Nixpacks**.
 - **Vercel (frontend):** deploy `nancy/` with Root Directory `nancy`.
 
 ## Quick start
