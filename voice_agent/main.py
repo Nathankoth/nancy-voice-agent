@@ -57,8 +57,6 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 DEEPGRAM_AGENT_URL = "wss://agent.deepgram.com/v1/agent/converse"
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "8765"))
 # End call after this many seconds of silence once Nancy has finished speaking (default: 60).
 SILENCE_TIMEOUT_SECONDS = int(os.getenv("SILENCE_TIMEOUT_SECONDS", "60"))
 
@@ -726,8 +724,9 @@ def main() -> None:
         RESERVATIONS_PATH.write_text("[]\n", encoding="utf-8")
 
     app = create_app()
-    logger.info("Voice agent server at http://%s:%s", HOST, PORT)
-    web.run_app(app, host=HOST, port=PORT, print=lambda msg: logger.info(msg.strip()))
+    port = int(os.environ.get("PORT", 8765))
+    logger.info("Voice agent server at http://0.0.0.0:%s", port)
+    web.run_app(app, host="0.0.0.0", port=port, print=lambda msg: logger.info(msg.strip()))
 
 
 if __name__ == "__main__":
