@@ -725,7 +725,7 @@ def main() -> None:
 
     app = create_app()
     port = int(os.environ.get("PORT", 8765))
-    logger.info("Voice agent server at http://0.0.0.0:%s", port)
+    print(f"Starting Nancy voice server on port {port}")
     web.run_app(app, host="0.0.0.0", port=port, print=lambda msg: logger.info(msg.strip()))
 
 
