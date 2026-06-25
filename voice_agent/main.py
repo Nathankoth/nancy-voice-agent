@@ -485,6 +485,7 @@ async def bridge_deepgram_to_browser(
 
 
 async def browser_handler(request: web.Request) -> web.WebSocketResponse:
+    print("WS HANDLER ENTERED", flush=True)
     origin = request.headers.get("Origin", "")
     if origin:
         logger.info("WebSocket connect from origin: %s (allowed=%s)", origin, is_allowed_origin(origin))
