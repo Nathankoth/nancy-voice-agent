@@ -6,8 +6,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta
-from timezone_utils import now_iso, now_local
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -42,7 +41,7 @@ def _calendar_id() -> str:
 
 
 def _timezone() -> str:
-    return os.getenv("GOOGLE_CALENDAR_TIMEZONE", os.getenv("APP_TIMEZONE", "Africa/Lagos"))
+    return os.getenv("GOOGLE_CALENDAR_TIMEZONE", "UTC")
 
 
 def _api_key() -> str | None:
@@ -75,15 +74,8 @@ async def list_reservations_async() -> list[dict]:
     if supabase_configured():
         db_rows = await list_reservations_from_db()
         if db_rows:
-            return [_normalize_reservation(r) for r in db_rows]
-    return [_normalize_reservation(r) for r in _load_reservations()]
-
-
-def _normalize_reservation(record: dict) -> dict:
-    normalized = dict(record)
-    if "party_size" not in normalized and "guests" in normalized:
-        normalized["party_size"] = normalized["guests"]
-    return normalized
+            return db_rows
+    return _load_reservations()
 
 
 async def update_reservation_status(reservation_id: str, status: str) -> dict:
@@ -255,14 +247,8 @@ async def create_reservation(
     session_id: str | None = None,
 ) -> dict:
     start, end = _parse_reservation_times(date, time)
-    if start < now_local():
-        return {
-            "success": False,
-            "error": f"Cannot book in the past. Current time is {now_local().strftime('%Y-%m-%d %H:%M')} WAT.",
-        }
-
     reservation_id = str(uuid.uuid4())
-    created_at = now_iso()
+    created_at = datetime.now(timezone.utc).isoformat()
 
     record = {
         "id": reservation_id,
