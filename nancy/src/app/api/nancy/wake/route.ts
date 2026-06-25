@@ -1,22 +1,40 @@
 import { NextResponse } from "next/server";
 import {
+  checkRemoteBackendHealth,
   ensureBackendRunning,
   isBackendReachable,
   isDevAutoStartEnabled,
+  isLocalSpawnAllowed,
+  usesRemoteBackend,
   waitForBackend,
 } from "@/lib/nancy-backend";
 
-/** POST /api/nancy/wake — start Python backend on demand (local dev). */
+/** POST /api/nancy/wake — start Python backend on demand (local dev only). */
 export async function POST() {
+  if (usesRemoteBackend()) {
+    const up = await checkRemoteBackendHealth();
+    return NextResponse.json(
+      {
+        ok: up,
+        mode: "production",
+        message: up
+          ? "Backend is reachable."
+          : "Nancy backend is offline. Check Railway and NANCY_BACKEND_URL.",
+      },
+      { status: up ? 200 : 503 }
+    );
+  }
+
   if (!isDevAutoStartEnabled()) {
     const up = await isBackendReachable();
-    return NextResponse.json({
-      ok: up,
-      mode: "production",
-      message: up
-        ? "Backend is reachable."
-        : "Set NEXT_PUBLIC_NANCY_WS_URL to your deployed backend.",
-    });
+    return NextResponse.json(
+      {
+        ok: up,
+        mode: "local",
+        message: up ? "Backend is reachable." : "Nancy backend is offline.",
+      },
+      { status: up ? 200 : 503 }
+    );
   }
 
   const first = await ensureBackendRunning();

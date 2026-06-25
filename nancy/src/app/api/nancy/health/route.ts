@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   backendHttpUrl,
   isBackendReachable,
-  isVercelDeploy,
+  usesRemoteBackend,
   NANCY_HOST,
   NANCY_PORT,
 } from "@/lib/nancy-backend";
@@ -12,8 +12,8 @@ export async function GET() {
   const ok = await isBackendReachable();
   return NextResponse.json({
     ok,
-    mode: isVercelDeploy() ? "vercel" : "local",
-    backend: isVercelDeploy() ? backendHttpUrl() : undefined,
+    mode: usesRemoteBackend() ? "remote" : "local",
+    backend: usesRemoteBackend() ? backendHttpUrl() : undefined,
     host: NANCY_HOST,
     port: NANCY_PORT,
   });

@@ -13,6 +13,33 @@ export function backendHttpUrl(): string {
   return `http://${NANCY_HOST}:${NANCY_PORT}`;
 }
 
+/** Production or explicit remote backend — never spawn Python locally. */
+export function usesRemoteBackend(): boolean {
+  return process.env.VERCEL_ENV === "production" || Boolean(process.env.NANCY_BACKEND_URL);
+}
+
+/** Local uv spawn is allowed only when no remote backend URL is configured. */
+export function isLocalSpawnAllowed(): boolean {
+  return !process.env.NANCY_BACKEND_URL;
+}
+
+/** HTTP health check against NANCY_BACKEND_URL (required when usesRemoteBackend()). */
+export async function checkRemoteBackendHealth(timeoutMs = 5000): Promise<boolean> {
+  const base = process.env.NANCY_BACKEND_URL?.replace(/\/$/, "");
+  if (!base) {
+    return false;
+  }
+  try {
+    const res = await fetch(`${base}/health`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 const START_LOCK_MS = 30_000;
 
 /** Resolve voice_agent dir — sibling of nancy/ by default. */
@@ -128,6 +155,15 @@ export async function ensureBackendRunning(): Promise<{
   started: boolean;
   error?: string;
 }> {
+  if (!isLocalSpawnAllowed() || usesRemoteBackend()) {
+    return {
+      ok: false,
+      alreadyRunning: false,
+      started: false,
+      error: "Local backend spawn is disabled when NANCY_BACKEND_URL is set or on Vercel production.",
+    };
+  }
+
   if (!isDevAutoStartEnabled()) {
     return {
       ok: false,
@@ -219,22 +255,10 @@ export async function waitForBackend(
   return false;
 }
 
-export function isVercelDeploy(): boolean {
-  return Boolean(process.env.VERCEL);
-}
-
-/** Local dev: TCP port check. Vercel: HTTP health check against remote NANCY_BACKEND_URL. */
+/** Local dev: TCP port check. Remote/Vercel: HTTP health check against NANCY_BACKEND_URL. */
 export async function isBackendReachable(): Promise<boolean> {
-  if (isVercelDeploy()) {
-    try {
-      const res = await fetch(`${backendHttpUrl()}/health`, {
-        signal: AbortSignal.timeout(3000),
-        cache: "no-store",
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+  if (usesRemoteBackend()) {
+    return checkRemoteBackendHealth(3000);
   }
   return isPortOpen();
 }
