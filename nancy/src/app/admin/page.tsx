@@ -76,7 +76,16 @@ export default function AdminPage() {
         fetch(`${API}/logs?limit=300`),
         fetch(`${API}/dismissed-sessions`),
       ]);
-      if (!resRes.ok || !logsRes.ok) throw new Error("fetch failed");
+
+      if (!resRes.ok || !logsRes.ok) {
+        const failed = !resRes.ok ? resRes : logsRes;
+        const data = await failed.json().catch(() => ({}));
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Cannot reach Nancy. Wait a moment and tap Refresh."
+        );
+      }
 
       const resData = await resRes.json();
       const logsData = await logsRes.json();
@@ -101,8 +110,12 @@ export default function AdminPage() {
       setReceipts(buildAdminReceipts(activeRes, sessions, dismissed));
       setLastFetch(new Date());
       setError("");
-    } catch {
-      setError("Cannot reach Nancy. Wait a moment and tap Refresh.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Cannot reach Nancy. Wait a moment and tap Refresh."
+      );
     } finally {
       setLoading(false);
     }

@@ -485,6 +485,10 @@ async def bridge_deepgram_to_browser(
 
 
 async def browser_handler(request: web.Request) -> web.WebSocketResponse:
+    origin = request.headers.get("Origin", "")
+    if origin:
+        logger.info("WebSocket connect from origin: %s (allowed=%s)", origin, is_allowed_origin(origin))
+
     browser_ws = web.WebSocketResponse()
     await browser_ws.prepare(request)
 
@@ -678,21 +682,30 @@ async def index(_request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC_DIR / "index.html")
 
 
+def is_allowed_origin(origin: str) -> bool:
+    """Origins permitted for browser HTTP + WebSocket (voice widget hits /ws directly)."""
+    if not origin:
+        return True
+    if origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:"):
+        return True
+    if origin.endswith(".vercel.app"):
+        return True
+    extra = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    if extra:
+        return origin in {o.strip() for o in extra.split(",") if o.strip()}
+    return False
+
+
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
-    """Allow browser requests from the Next.js app (different port)."""
+    """Allow browser requests from the Next.js app (different port / Vercel domain)."""
     if request.method == "OPTIONS":
         response = web.Response()
     else:
         response = await handler(request)
 
     origin = request.headers.get("Origin", "")
-    allowed = (
-        origin.startswith("http://localhost:")
-        or origin.startswith("http://127.0.0.1:")
-        or origin.endswith(".vercel.app")
-    )
-    if allowed or not origin:
+    if is_allowed_origin(origin):
         response.headers["Access-Control-Allow-Origin"] = origin or "*"
     response.headers["Access-Control-Allow-Methods"] = "GET, PUT, POST, PATCH, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"

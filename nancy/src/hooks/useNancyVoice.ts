@@ -6,7 +6,26 @@ import { reservationToReceipt, type CallReceipt } from "@/lib/receipts";
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
-const WS_URL = process.env.NEXT_PUBLIC_NANCY_WS_URL || "ws://localhost:8765/ws";
+const DEFAULT_WS_URL =
+  process.env.NEXT_PUBLIC_NANCY_WS_URL || "ws://localhost:8765/ws";
+
+async function resolveWsUrl(): Promise<string> {
+  if (isLocalNancyBackend(DEFAULT_WS_URL)) {
+    return DEFAULT_WS_URL;
+  }
+
+  const res = await fetch("/api/nancy/config", { cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Nancy backend is not configured.");
+  }
+  if (!data.backendOk) {
+    throw new Error(
+      "Nancy backend is offline. Deploy voice_agent on Railway and set NANCY_BACKEND_URL in Vercel."
+    );
+  }
+  return data.wsUrl || DEFAULT_WS_URL;
+}
 
 export type ConnectionStatus =
   | "idle"
@@ -206,7 +225,7 @@ export function useNancyVoice() {
     setLogs([]);
 
     try {
-      if (isLocalNancyBackend(WS_URL)) {
+      if (isLocalNancyBackend(DEFAULT_WS_URL)) {
         addLog({
           category: "system",
           message: "Starting Nancy backend…",
@@ -215,12 +234,14 @@ export function useNancyVoice() {
         await wakeLocalBackend();
       }
 
+      const wsUrl = await resolveWsUrl();
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
       });
       mediaStreamRef.current = stream;
 
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.binaryType = "arraybuffer";
 
@@ -300,9 +321,9 @@ export function useNancyVoice() {
 
       ws.onerror = () => {
         setError(
-          isLocalNancyBackend(WS_URL)
+          isLocalNancyBackend(wsUrl)
             ? "Could not connect. Tap again. The backend starts automatically."
-            : "Cannot connect to Nancy. Check your connection settings."
+            : "Cannot connect to Nancy. The voice server may be offline — check Railway deploy and NANCY_BACKEND_URL."
         );
         setStatus("error");
       };

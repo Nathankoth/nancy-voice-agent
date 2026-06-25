@@ -5,16 +5,28 @@ import {
   isBackendReachable,
   isDevAutoStartEnabled,
   isLocalSpawnAllowed,
+  remoteBackendConfigError,
   usesRemoteBackend,
   waitForBackend,
 } from "@/lib/nancy-backend";
 
 /** Wake Python backend in dev; return error response or null if ready. */
 export async function ensureBackend(): Promise<NextResponse | null> {
+  const configError = remoteBackendConfigError();
+  if (configError) {
+    return NextResponse.json({ error: configError }, { status: 503 });
+  }
+
   if (usesRemoteBackend()) {
     const up = await checkRemoteBackendHealth();
     if (!up) {
-      return NextResponse.json({ error: "Nancy backend is offline." }, { status: 503 });
+      return NextResponse.json(
+        {
+          error:
+            "Nancy backend is offline. Check Railway is deployed and /health responds.",
+        },
+        { status: 503 }
+      );
     }
     return null;
   }

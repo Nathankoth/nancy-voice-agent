@@ -23,6 +23,16 @@ export function isLocalSpawnAllowed(): boolean {
   return !process.env.NANCY_BACKEND_URL;
 }
 
+/** WebSocket URL derived from NANCY_BACKEND_URL (server-side; avoids stale NEXT_PUBLIC builds). */
+export function backendWsUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_NANCY_WS_URL?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  const http = backendHttpUrl();
+  return `${http.replace(/^http/, "ws")}/ws`;
+}
+
 /** HTTP health check against NANCY_BACKEND_URL (required when usesRemoteBackend()). */
 export async function checkRemoteBackendHealth(timeoutMs = 5000): Promise<boolean> {
   const base = process.env.NANCY_BACKEND_URL?.replace(/\/$/, "");
@@ -34,10 +44,24 @@ export async function checkRemoteBackendHealth(timeoutMs = 5000): Promise<boolea
       signal: AbortSignal.timeout(timeoutMs),
       cache: "no-store",
     });
-    return res.ok;
+    if (!res.ok) {
+      return false;
+    }
+    const data = (await res.json()) as { status?: string };
+    return data?.status === "ok";
   } catch {
     return false;
   }
+}
+
+export function remoteBackendConfigError(): string | null {
+  if (!usesRemoteBackend()) {
+    return null;
+  }
+  if (!process.env.NANCY_BACKEND_URL) {
+    return "NANCY_BACKEND_URL is not set. Add your Railway URL in Vercel → Settings → Environment Variables.";
+  }
+  return null;
 }
 
 const START_LOCK_MS = 30_000;
