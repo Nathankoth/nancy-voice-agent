@@ -25,6 +25,7 @@ logger = logging.getLogger("voice_agent.calendar")
 BASE_DIR = Path(__file__).parent
 RESERVATIONS_PATH = BASE_DIR / "logs" / "reservations.json"
 RESERVATIONS_PATH.parent.mkdir(exist_ok=True)
+LEADS_PATH = BASE_DIR / "logs" / "leads.json"
 
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -354,9 +355,59 @@ async def create_reservation(
     return {"success": record["status"] == "confirmed", "reservation": record, "message": msg}
 
 
+def _load_leads() -> list[dict]:
+    if not LEADS_PATH.exists():
+        return []
+    try:
+        return json.loads(LEADS_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+
+def _save_leads(leads: list[dict]) -> None:
+    with open(LEADS_PATH, "w", encoding="utf-8") as f:
+        json.dump(leads, f, indent=2)
+        f.write("\n")
+
+
+async def capture_lead(
+    name: str,
+    phone: str,
+    need: str,
+    notes: str = "",
+    session_id: str | None = None,
+) -> dict:
+    record = {
+        "id": str(uuid.uuid4()),
+        "name": name.strip(),
+        "phone": phone.strip(),
+        "need": need.strip(),
+        "notes": notes.strip(),
+        "session_id": session_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source": "RIFT Nancy voice agent",
+    }
+    leads = _load_leads()
+    leads.append(record)
+    _save_leads(leads)
+    msg = (
+        f"Got it, {record['name']}. I've saved your details. "
+        "The founder will call you back soon."
+    )
+    return {"success": True, "lead": record, "message": msg}
+
+
 async def handle_function_call(
     name: str, arguments: dict, session_id: str | None = None
 ) -> dict:
+    if name == "capture_lead":
+        return await capture_lead(
+            name=arguments["name"],
+            phone=arguments["phone"],
+            need=arguments["need"],
+            notes=arguments.get("notes", ""),
+            session_id=session_id,
+        )
     if name == "create_reservation":
         return await create_reservation(
             guest_name=arguments["guest_name"],

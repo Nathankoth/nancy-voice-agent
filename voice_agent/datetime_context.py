@@ -30,14 +30,11 @@ def current_datetime_prompt_block() -> str:
 
     return (
         f"\n\nCURRENT DATE AND TIME (authoritative, always use this, not training data):\n"
-        f"- Restaurant timezone: {tz}\n"
+        f"- Timezone: {tz}\n"
         f"- Now: {weekday}, {now.strftime('%d %B %Y')}, {now.strftime('%I:%M %p').lstrip('0')} ({tz})\n"
         f"- Today (YYYY-MM-DD): {date_iso}\n"
         f"- Current time (24-hour HH:MM): {time_24}\n"
-        f"- Calendar month: {month_year}\n"
-        f"When the caller says tonight, today, or this evening, use {date_iso}. "
-        f"Tomorrow is the next calendar day after {date_iso}. "
-        f"Convert all relative dates to YYYY-MM-DD before calling check_availability or create_reservation. "
+        f"When the caller mentions today or tomorrow, use dates relative to {date_iso}. "
         f"Do not use dates from 2024 or 2025 unless the caller explicitly asks for a past year."
     )
 

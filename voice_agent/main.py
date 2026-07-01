@@ -306,8 +306,8 @@ async def handle_function_call_request(
         result = await handle_function_call(name, arguments, session_id=session_id)
         content = json.dumps(result)
 
-        if name in ("create_reservation", "check_availability"):
-            category = "calendar"
+        if name in ("create_reservation", "check_availability", "capture_lead"):
+            category = "calendar" if name != "capture_lead" else "lead"
             await send_json(
                 browser_ws,
                 log_event(category, result.get("message", content), {"result": result}),
@@ -690,6 +690,8 @@ def is_allowed_origin(origin: str) -> bool:
     if origin.startswith("http://localhost:") or origin.startswith("http://127.0.0.1:"):
         return True
     if origin.endswith(".vercel.app"):
+        return True
+    if "riftdigitalsolution.com" in origin:
         return True
     extra = os.getenv("CORS_ALLOWED_ORIGINS", "")
     if extra:
